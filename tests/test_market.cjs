@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const root=path.join(__dirname,'..','static'),ctx=vm.createContext({});
+for(const name of ['app.js','investment.js','market.js'])vm.runInContext(fs.readFileSync(path.join(root,name),'utf8').split('\ndocument.addEventListener')[0],ctx);
+const run=code=>vm.runInContext(code,ctx);
+run(`user={role:'student',team_id:1};teamId=1;game={period:1,total_rounds:5,phase:'open',env:{catastrophe:0,stock_return:.12},teams:[{id:1,name:'Team 01',state:{assets:9165000,surplus:3000000,policies:1000,cumulative:0,ad_last:0,ad_previous:0}},{id:2,name:'Team 02'},{id:3,name:'Team 03'}],decisions:{'1':{submitted:false,values:{low_premium:100,high_premium:150,low_pct:.75,high_pct:.25,low_screening:0,high_screening:0,advertising:50000,promotion:20000,new_commission:15,renewal_commission:10,strategy:4,reinsurance:.1,cash_pct:.1,bond_pct:.7,stock_pct:.2,bond_strategy:1,stock_strategy:2}}}};`);
+let html=run('decisions()');
+for(const name of ['low_premium','high_premium','low_pct','high_pct','low_screening','high_screening','strategy','cash_pct','bond_strategy','stock_strategy'])assert(html.includes('name="'+name+'"'));
+assert(html.includes('Strategy 1 · Base loss ratio 39%'));
+assert(html.includes('Strategy 9 · Base loss ratio 80%'));
+assert(html.includes('Higher strategies accept more applicants'));
+assert(html.includes('maximize weighted surplus'));
+assert(html.includes('With 3 teams, any team choosing Strategy 2 receives 2%'));
+assert(!html.includes('name="price"'));
+assert(!/NaN|undefined|Infinity/.test(html));
+for(const [region,premium,claim] of [['low',100,43.35],['high',150,95.625]]){
+ const input=html.match(new RegExp('<input[^>]*name="'+region+'_premium"[^>]*>'))[0];
+ assert.equal(Number(input.match(/value="([^"]*)"/)[1]),premium);
+ assert(Number(input.match(/min="([^"]*)"/)[1])<=premium);
+ assert(Number(input.match(/max="([^"]*)"/)[1])>=premium);
+ const preview=run(`regionInfo.${region}.reference * lossRatios[3]/100 * regionInfo.${region}.factor`);
+ assert(Math.abs(preview-claim)<1e-10);
+}
+run("game.phase='locked'");html=run('decisions()');
+assert(/name="low_premium"[^>]*disabled/.test(html));
+assert(/name="stock_strategy"[^>]*disabled/.test(html));
+const rule=run('rules()');assert(rule.includes('3 million CU surplus and 1,000 policies'));assert(rule.includes('5 million CU × number of teams'));
+assert(!rule.includes('3 × surplus'));
+const historical=run('regionBreakdown({})');assert(historical.includes('Historical market model'));
+run("game.teams[0].name='<script>alert(1)</script>'");assert(!run('decisions()').includes('<script>alert(1)</script>'));
+console.log('Market UI checks passed: dual pricing/mix/screening fields, strategy explanations, weighted surplus, locked fields, legacy reports, and escaping.');
