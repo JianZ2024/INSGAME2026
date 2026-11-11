@@ -20,18 +20,18 @@ Round 1 of 5; weight **12.598425%**. Low-risk shock **1.0x**; high-risk shock **
 | Team 05 | 98 | 165 | 60% / 40% | 5 | 50,000 | 25,000 |
 
 All teams use zero screening, 10% reinsurance, 10% cash, 70% bonds,
-20% stocks, Bond 1 (4%), and Stock 2 (100% of the 12% base return).
+20% stocks, Bond 1 (4%), and Stock 2 (100% of the 5% demo base return).
 Each opens with 3,000,000 surplus, 1,000 policies, and 9,165,000 total assets.
 
 ## Calculated results
 
 | Team | Market share | Policies | Gross premium | Closing surplus | Weighted surplus | Rank |
 |---|---:|---:|---:|---:|---:|---:|
-| Team 01 | 15.17% | 791.27 | 88,423.98 | 4,543,297.97 | 572,384.00 | 2 |
-| Team 02 | 18.39% | 936.99 | 107,168.55 | 4,508,185.41 | 567,960.37 | 3 |
-| Team 03 | 27.82% | 1,312.93 | 162,147.05 | 4,412,404.25 | 555,893.45 | 5 |
-| Team 04 | 14.52% | 743.97 | 84,589.44 | 4,552,991.34 | 573,605.21 | 1 |
-| Team 05 | 24.10% | 1,125.32 | 140,439.96 | 4,470,184.10 | 563,172.80 | 4 |
+| Team 01 | 15.17% | 791.27 | 88,423.98 | 4,472,228.26 | 563,430.33 | 2 |
+| Team 02 | 18.39% | 936.99 | 107,168.55 | 4,437,063.74 | 559,000.16 | 3 |
+| Team 03 | 27.82% | 1,312.93 | 162,147.05 | 4,341,130.18 | 546,914.04 | 5 |
+| Team 04 | 14.52% | 743.97 | 84,589.44 | 4,481,932.26 | 564,652.88 | 1 |
+| Team 05 | 24.10% | 1,125.32 | 140,439.96 | 4,398,970.20 | 554,200.97 | 4 |
 
 Market share is measured by gross premium. Weighted surplus in this first round
 is closing surplus multiplied by 16/127. Fractional policies are retained internally;

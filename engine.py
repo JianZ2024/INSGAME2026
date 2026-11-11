@@ -11,6 +11,7 @@ MIN_CASH = .10
 WEIGHT_RULE = "median-80-120-v1"
 DEFAULT_ROUNDS = 5
 MAX_ROUNDS = 99
+MAX_TEAMS = 50
 LOSS_RATIOS = [.39, .44, .47, .51, .56, .62, .67, .73, .80]
 REGIONS = {
     'low': dict(name='Low risk', reference_premium=100, risk_factor=.85,
@@ -19,7 +20,7 @@ REGIONS = {
     'high': dict(name='High risk', reference_premium=150, risk_factor=1.25,
                  appeal_sensitivity=1.6, price_elasticity=1.1,
                  shocks=[(.6, .6), (.3, 1.2), (.1, 2.8)])}
-DEFAULT_ENV = dict(market_growth=.02, catastrophe=0, stock_return=.12, ceding_rate=.50)
+DEFAULT_ENV = dict(market_growth=.02, catastrophe=0, stock_return=.05, ceding_rate=.50)
 DEFAULT_DECISION = dict(low_premium=100, high_premium=150,
                         low_pct=.75, high_pct=.25, low_screening=0, high_screening=0,
                         advertising=50_000, promotion=20_000,
@@ -43,10 +44,15 @@ def number(value, label, low, high, integer=False):
 
 
 def validate_env(data):
-    return {k: number(data.get(k), name, lo, hi) for k, name, lo, hi in [
+    env = {k: number(data.get(k), name, lo, hi) for k, name, lo, hi in [
         ('market_growth', 'Annual customer market growth', -.20, .20), ('catastrophe', 'Catastrophe increment', 0, 1),
         ('stock_return', 'Base annual stock return', -1, 1),
         ('ceding_rate', 'Ceding commission rate', 0, 1)]}
+    if 'random_catastrophe' in data:
+        if not isinstance(data['random_catastrophe'], bool):
+            raise ValueError('Invalid catastrophe setting.')
+        env['random_catastrophe'] = data['random_catastrophe']
+    return env
 
 
 def round_weights(total_rounds=DEFAULT_ROUNDS):
@@ -176,15 +182,15 @@ def relative(values):
 
 
 def calculate_round(env, teams, decisions, period, total_rounds=DEFAULT_ROUNDS,
-                    market_policies=None, risk_seed='test-seed'):
+                    market_policies=None, risk_seed='test-seed', catastrophe_event_pp=0):
     env = validate_env(env)
     weights = round_weights(total_rounds)
     period = number(period, 'Round', 1, len(weights), True)
     ds = [validate_decision(decisions[str(t['id'])]['values']) for t in teams]
     ratings = [number(t['rating'], 'Rating', 1, 5, True) for t in teams]
     n = len(teams)
-    if not 2 <= n <= 20:
-        raise ValueError('The number of teams must be between 2 and 20.')
+    if not 2 <= n <= MAX_TEAMS:
+        raise ValueError(f'The number of teams must be between 2 and {MAX_TEAMS}.')
     # Count selected strategies, including teams with zero bond allocation.
     # Integer arithmetic makes the strict 30% boundary exact.
     bond_strategy_2_count = sum(d['bond_strategy'] == 2 for d in ds)
@@ -208,9 +214,11 @@ def calculate_round(env, teams, decisions, period, total_rounds=DEFAULT_ROUNDS,
         net = gross - ceded
         ceding = ceded * env['ceding_rate']
         units = volumes[i]
-        regions = {key:regional_loss(d,key,units*d[key+'_pct'],env['catastrophe'],shocks[key])
+        regions = {key:regional_loss(d,key,units*d[key+'_pct'],0 if catastrophe_event_pp else env['catastrophe'],shocks[key])
                    for key in REGIONS}
-        for key,r in regions.items(): r['appeal'] = appeals[i][key]
+        for key,r in regions.items():
+            r['appeal'] = appeals[i][key]
+            r['loss_ratio'] += catastrophe_event_pp / 100
         delta = net - s['net_premium']
         upr = s['upr'] + .27 * delta
         earned = net - (upr - s['upr'])

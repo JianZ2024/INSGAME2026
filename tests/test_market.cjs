@@ -30,11 +30,15 @@ run("game.teams[0].name='<script>alert(1)</script>'");assert(!run('decisions()')
 console.log('Market UI checks passed: dual pricing/mix/screening fields, strategy explanations, weighted surplus, locked fields, legacy reports, and escaping.');
 
 run('game.env.stock_return=-.05');
+assert(!run('decisions()+investmentRules()').includes('-5.0%'));
+run("user={role:'teacher'}");
 assert(run('investmentRules()').includes('-4.0%, -5.0%, -6.0%, -7.0%, -10.0%'));
+run("user={role:'student',team_id:1}; delete game.env.stock_return");
 html=run('decisions()');
+assert(!html.includes('NaN'));
 for(const hint of ['80–120 CU','120–180 CU','60–90%','10–40%','0–1%','own book'])assert(html.includes(hint));
 run('game=null;user=null');
 const guide=run('marketRules()');
 assert(guide.includes('One round, one year')&&guide.includes('highest cumulative weighted surplus'));
-assert(guide.includes('instructor-set base of 8%'));
+assert(guide.includes('The base rate is private'));
 console.log('Public rules, instructor stock scenarios and regional input guidance passed.');

@@ -161,7 +161,7 @@ Cash allocation must be **at least 10%**; cash, bonds, and stocks total 100%. Th
 
 - Bond strategy 1: fixed annual return 4%.
 - Bond strategy 2: 8% if strictly fewer than 30% of all teams choose it, otherwise 2%. Exactly 30% earns 2%. Teams selecting it count even with zero bond allocation. In a 3-team game, any selection receives 2%.
-- Stock strategies 1–5: 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return (set at classroom creation and editable in each open round; demo starts at 12%; permitted −100% to 100%). At a 12% base, resulting rates are 9.6%, 12%, 14.4%, 16.8%, and 24%. A negative base multiplies the loss. These choices add no independent random risk.
+- Stock strategies 1–5: 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return (set privately by the instructor in Market Overview during an open round; permitted −100% to 100%). Students choose a multiplier without seeing the configured base or the resulting annual rates. A negative base multiplies the loss. These choices add no independent random risk.
 - Rates are before investment tax. Bond income retains 85%; stock income retains 66%. Strategy changes alone add no fee; the 0.5% fee applies to changes in the amounts of securities held.
 
 ## 9. Workflow, privacy, and upgrade
@@ -182,4 +182,9 @@ Automated checks cover independently calculated symmetric accounts, weights for 
 
 ## Roster changes
 
-In any open round, an instructor can add or remove a team within the 2–20 active team limit. Existing numbers and all calculated history are preserved. Late entrants start with the standard opening book and earn no score for missed rounds. The current round’s policy potential scales by the new team count divided by the old count. Before the first settlement the opening premium benchmark also scales to 5 million CU per team. Roster edits or changes to the base stock return reopen submissions without discarding the surviving teams’ decisions.
+In any open round, an instructor can add or remove a team within the 2–50 active team limit. Existing numbers and all calculated history are preserved. Late entrants start with the standard opening book and earn no score for missed rounds. The current round’s policy potential scales by the new team count divided by the old count. Before the first settlement the opening premium benchmark also scales to 5 million CU per team. Roster edits or changes to the base stock return reopen submissions without discarding the surviving teams’ decisions.
+
+
+## Optional common catastrophe event
+
+The manual catastrophe adjustment affects the reference-price loss ratio before the usual regional shock. Alternatively the instructor can enable a random catastrophe for one open round. In this mode the manual adjustment is ignored. At settlement the server draws a single uniformly distributed integer from 5 through 20. For both regions of every team, actual loss ratio = ordinary realized loss ratio + draw / 100. Thus a 40% realized ratio becomes 52% with a 12-point event. The event changes losses on retained earned premium, not customer demand. The stored event is not redrawn when viewing or publishing. The next round starts with the random event off.

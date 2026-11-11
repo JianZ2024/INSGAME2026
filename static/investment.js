@@ -22,8 +22,8 @@ function investmentControls(d,disabled){
  <label class="investment-choice"><input type="radio" name="bond_strategy" value="2" ${d.bond_strategy===2?'checked':''} ${off} required><span><b>Strategy 2 · Participation-based</b><small>8% if fewer than 30% of all teams select it; otherwise 2%.</small></span><strong>8% / 2%</strong></label>
  <p class="caption">${bondThresholdText(game.teams.length)} Counts all teams selecting this strategy, even with 0% in bonds. Determined when the round is calculated.</p></fieldset>
  <fieldset class="investment-options"><legend>Stock strategy</legend>
- <p class="caption">Instructor-set base annual stock return for this round: <b>${pct(base)}</b>. Choose one multiplier:</p>
- ${stockMultipliers.map((m,i)=>`<label class="investment-choice"><input type="radio" name="stock_strategy" value="${i+1}" ${d.stock_strategy===i+1?'checked':''} ${off} required><span><b>Strategy ${i+1} · ${Math.round(m*100)}% of base</b><small>${pct(base)} × ${m.toFixed(1)}</small></span><strong>${pct(base*m)}</strong></label>`).join('')}
+ <p class="caption">${teacher()?'Instructor-set base annual stock return: <b>'+pct(base)+'</b>.':'The instructor sets the base return privately.'} Choose a multiplier:</p>
+ ${stockMultipliers.map((m,i)=>`<label class="investment-choice"><input type="radio" name="stock_strategy" value="${i+1}" ${d.stock_strategy===i+1?'checked':''} ${off} required><span><b>Strategy ${i+1} · ${Math.round(m*100)}% of base</b>${teacher()?'<small>'+pct(base)+' × '+m.toFixed(1)+'</small>':''}</span>${teacher()?'<strong>'+pct(base*m)+'</strong>':''}</label>`).join('')}
  </fieldset></div><p class="caption investment-footnote">Rates are annual, before investment tax; each round represents one year. Bond income retains 85% and stock income 66% after tax. Rebalancing fee: 0.5% of securities traded.</p></section>`;
 }
 
@@ -38,16 +38,16 @@ function updateInvestmentPreview(form){
  form.elements.stock_pct.setCustomValidity(validTotal?'':'Cash, bonds, and stocks must total 100%.');
  $('#bond-strategy-preview').textContent=value('bond_strategy')===1?'Strategy 1 · 4.0% fixed':'Strategy 2 · 8.0% or 2.0%';
  const m=stockMultipliers[value('stock_strategy')-1];
- $('#stock-strategy-preview').textContent=`${Math.round(m*100)}% of base · ${pct(game.env.stock_return*m)}`;
+ $('#stock-strategy-preview').textContent=`${Math.round(m*100)}% of base${teacher()?' · '+pct(game.env.stock_return*m):''}`;
 }
 
 function investmentReport(r,h){
- if(r.bond_strategy===undefined) return `<section class="card"><h2>Investment returns</h2><p class="caption">Historical round · original investment rules</p>${line('Bond return',pct(h.env.bond_return))}${line('Stock return',pct(h.env.stock_return))}<p class="caption">This completed round retains its original rates and financial results.</p></section>`;
- return `<section class="card"><h2>Investment strategies &amp; returns</h2>${line('Bond strategy',r.bond_strategy===1?'1 · Fixed':'2 · Participation-based')}${line('Annual bond return',pct(r.bond_return))}${line('Teams choosing bond strategy 2',r.bond_strategy_2_count+' / '+r.team_count)}${line('Stock strategy',r.stock_strategy+' · '+Math.round(r.stock_multiplier*100)+'% of base')}${line('Base annual stock return',pct(r.stock_base_return))}${line('Annual stock return',pct(r.stock_return))}<p class="caption">Rates shown are before tax. Investment income in the financial report is after tax.</p></section>`;
+ if(r.bond_strategy===undefined) return `<section class="card"><h2>Investment returns</h2><p class="caption">Historical round · original investment rules</p>${line('Bond return',pct(h.env.bond_return))}${teacher()?line('Stock return',pct(h.env.stock_return)):''}<p class="caption">This completed round retains its original rates and financial results.</p></section>`;
+ return `<section class="card"><h2>Investment strategies &amp; returns</h2>${line('Bond strategy',r.bond_strategy===1?'1 · Fixed':'2 · Participation-based')}${line('Annual bond return',pct(r.bond_return))}${line('Teams choosing bond strategy 2',r.bond_strategy_2_count+' / '+r.team_count)}${line('Stock strategy',r.stock_strategy+' · '+Math.round(r.stock_multiplier*100)+'% of base')}${teacher()?line('Base annual stock return',pct(r.stock_base_return))+line('Annual stock return',pct(r.stock_return)):''}<p class="caption">Rates shown are before tax. Investment income in the financial report is after tax.</p></section>`;
 }
 
 function investmentRules(){
  const base=game?.env?.stock_return;
- const rateText=Number.isFinite(base)?`For this round the instructor set a base of ${pct(base)}. The five annual rates are ${stockMultipliers.map(m=>pct(base*m)).join(', ')}.`:'For example, at an instructor-set base of 8%, the five annual rates are 6.4%, 8%, 9.6%, 11.2% and 16%.';
+ const rateText=teacher()&&Number.isFinite(base)?`For this round the instructor set a base of ${pct(base)}. The five annual rates are ${stockMultipliers.map(m=>pct(base*m)).join(', ')}.`:'The base rate is private; choose how strongly to scale its gain or loss.';
  return `<section class="card"><h2>Investment strategies and cash requirement</h2><p>Each round represents one year. Cash must be at least 10% of the opening allocation; cash, bonds, and stocks must total 100%. Later trading costs and operating cash flows can reduce the closing cash ratio.</p><p><b>Bonds:</b> Strategy 1 returns 4%. Strategy 2 returns 8% only if fewer than 30% of all teams select it; at 30% or above it returns 2%. Selection counts even with zero bond allocation.</p><p><b>Stocks:</b> Strategies 1–5 apply 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return. ${rateText} These are multipliers, not standalone annual returns. A negative base also has its loss multiplied.</p><p>Rates are before tax. Bond income retains 85% and stock income 66%. Rebalancing costs 0.5% of securities traded.</p></section>`;
 }

@@ -31,7 +31,7 @@ assert.equal(Number(rects[0][1]), zero); // Loss extends downwards from zero.
 assert(Number(rects[0][2]) > 0);
 assert.equal(Number(rects[1][2]), 0);
 assert(Number(rects[2][1]) < zero); // Positive profit rises above zero.
-for (const values of [[0,0],[-10,-20],[10,20],Array.from({length:20},(_,i)=>i-10)]) {
+for (const values of [[0,0],[-10,-20],[10,20],Array.from({length:50},(_,i)=>i-10)]) {
   fixture(values);
   html = run('instructorDashboard()');
   assert(!/NaN|Infinity|undefined/.test(html));
@@ -50,4 +50,18 @@ run('game.history=[];');
 assert(run('instructorDashboard()').includes('Calculate a round'));
 run("user={role:'student'};");
 assert(run('instructorDashboard()').includes('Instructor access required'));
-console.log('Dashboard checks passed: data mapping, negative/zero/positive bars, 20 teams, round selection, empty state, escaping, and instructor access.');
+console.log('Dashboard checks passed: data mapping, negative/zero/positive bars, 50 teams, round selection, empty state, escaping, and instructor access.');
+
+fixture([10,20,30]);
+run(`rows.forEach((r,i)=>Object.assign(r,{share:[.2,.3,.5][i],bond_income:[5,4,-4][i],stock_income:[0,1,1][i],regions:{low:{premium:90+i},high:{premium:150+i*5}}}));
+game.history[0].catastrophe_event_pp=12;`);
+html=run('instructorDashboard()');
+const order=title=>[...html.split('<h2>'+title+'</h2>')[1].split('</section>')[0].matchAll(/class="chart-mark" data-chart-team="(\d+)"/g)].map(x=>Number(x[1]));
+assert.deepEqual(order('Investment income'),[1,2,3]); // A tie, followed by a loss.
+assert.deepEqual(order('Closing surplus'),[3,2,1]);
+const rankedShare=html.split('<h2>Market share</h2>')[1].split('</section>')[0];
+assert.deepEqual([...rankedShare.matchAll(/class="chart-mark" data-chart-team="(\d+)"/g)].map(x=>Number(x[1])),[3,2,1]);
+for(const label of ['90 CU – 92 CU','150 CU – 160 CU','20.00% – 50.00%','+12 percentage points','Generate AI commentary'])assert(html.includes(label));
+assert(html.indexOf('Market commentary')>html.indexOf('Team performance'));
+run("game.history[0].ai_commentary='<b>Untrusted text</b>'");
+assert(run('instructorDashboard()').includes('&lt;b&gt;Untrusted text&lt;/b&gt;'));

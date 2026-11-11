@@ -25,7 +25,7 @@ This is a synthetic teaching model, not an estimate of a real insurance market. 
 
 | Area | Implemented functionality |
 |---|---|
-| Classrooms | Multiple classrooms; 2–20 teams; 1–99 rounds, default 5; a five-team demo; recoverable deletion and restoration |
+| Classrooms | Multiple classrooms; 2–50 teams; 1–99 rounds, default 5; a five-team demo; recoverable deletion and restoration |
 | Instructor controls | Team passwords, entry on behalf of teams, conditions and ratings, locking, once-only calculation, publication, and round progression |
 | Student workspace | Game code / team number / team password login; private decisions; drafts, submission, and resubmission before locking |
 | Two markets | Separate low/high-risk premiums, exact policy proportions totaling 100%, different losses, and regional screening budgets |
@@ -45,7 +45,7 @@ This is a synthetic teaching model, not an estimate of a real insurance market. 
 - Screening is fully expensed and has diminishing returns: spending 1% of regional premium reduces the reference-price loss ratio by 2.5 percentage points, approaching a 5-point cap.
 - Total market premium responds to demand, prices, and policy mix. Customer growth defaults to 2% and is editable by the instructor.
 - Bond 1 earns 4%. Bond 2 earns 8% when **strictly fewer than 30% of all teams** select it; otherwise it earns 2%. Selection counts even with zero bond allocation.
-- Stock choices are **80%, 100%, 120%, 140%, or 200% of the base return**. At an example 12% base, the rates are **9.6%, 12%, 14.4%, 16.8%, and 24%**. A negative base also multiplies losses.
+- Stock choices are **80%, 100%, 120%, 140%, or 200% of the base return**. New classrooms start at a 5% base. Instructors can change it in the Market Overview during an open round. Students see the five multipliers, not the configured base or the corresponding rates. A negative base also multiplies losses.
 - Round weights start at 1 in the middle, multiply by 0.8 moving backward and 1.2 moving forward, then normalize to 100%. Even round counts have equal middle weights. Five rounds use **16:20:25:30:36**, divided by 127.
 
 **Opening book versus new prices:** the historical opening premium benchmark remains **5 million CU per team**, with its associated reserves. At 1,000 policies, a 75%/25% mix and 100/150 prices, new written premium is **112,500 CU**. Opening balances, marketing budgets, and unit costs are not rescaled; first-round reserve movements reflect that change. See [RULES.md](RULES.md).
@@ -98,13 +98,13 @@ python app.py --port 2027 --data-dir ./data-demo
 ### Instructor workflow
 
 1. Select **Instructor**. Open `data/admin_key.txt` on the server computer and enter its contents as the **Teacher password**. It is generated on first startup. If you set `INSGAME_ADMIN_KEY`, use that value instead; for a custom `--data-dir`, read `admin_key.txt` in that directory. The terminal reports the password source without printing the password.
-2. Choose **New classroom**, specify the round-one base annual stock return, enter a name, choose 2–20 teams, and set 1–99 rounds (default 5).
+2. Choose **New classroom**, enter a name, choose 2–50 teams, and set 1–99 rounds (default 5).
 3. In **Classroom Overview**, distribute the game code, team number, and each team's own password. **Copy access details** copies the address and game code; distribute team passwords separately. After a team sets its own password, you see **Set by team** instead of its password. Use **Reset password** on that team's row to issue a new temporary password and sign out that team. Resetting does not change decisions or results.
 4. Review **Company Decisions**. Normal classrooms begin with drafts; all teams must submit before **Lock decisions** becomes available. The instructor may enter decisions on behalf of teams.
 5. Choose **Lock decisions → Calculate round**. Review **Instructor Dashboard** and **Performance Reports** before publishing.
 6. Choose **Publish results → Open next round**. Balances and marketing history carry forward. Teams must submit again. Publishing the final round finishes the game.
 
-In **Classroom Overview**, use **Add team** or **Remove team** while decisions are open (2–20 active teams). Removal signs that team out. Surviving team numbers and completed reports remain unchanged; new teams start with the standard opening book and zero cumulative score. The current customer pool scales with the active team count, preserving potential customers per team. Roster changes and base stock return changes preserve decision values but require fresh submissions. The stock base carries forward until edited.
+In **Classroom Overview**, use **Add team** or **Remove team** while decisions are open (2–50 active teams). Removal signs that team out. Surviving team numbers and completed reports remain unchanged; new teams start with the standard opening book and zero cumulative score. The current customer pool scales with the active team count, preserving potential customers per team. Roster changes and base stock return changes preserve decision values but require fresh submissions. The stock base carries forward until edited.
 
 The round count is editable while submissions are open and before the first calculation. Conditions and ratings are editable while the current round is open. A locked but uncalculated round can be unlocked; calculated rounds cannot be recalculated through the interface.
 
@@ -160,11 +160,11 @@ This script uses the browser demo's starting decisions, the real engine, and a t
 <!-- example-results:start -->
 | Team | Market share | Policies | Gross premium | Closing surplus | Weighted surplus | Rank |
 |---|---:|---:|---:|---:|---:|---:|
-| Team 01 | 15.17% | 791.27 | 88,423.98 | 4,543,297.97 | 572,384.00 | 2 |
-| Team 02 | 18.39% | 936.99 | 107,168.55 | 4,508,185.41 | 567,960.37 | 3 |
-| Team 03 | 27.82% | 1,312.93 | 162,147.05 | 4,412,404.25 | 555,893.45 | 5 |
-| Team 04 | 14.52% | 743.97 | 84,589.44 | 4,552,991.34 | 573,605.21 | 1 |
-| Team 05 | 24.10% | 1,125.32 | 140,439.96 | 4,470,184.10 | 563,172.80 | 4 |
+| Team 01 | 15.17% | 791.27 | 88,423.98 | 4,472,228.26 | 563,430.33 | 2 |
+| Team 02 | 18.39% | 936.99 | 107,168.55 | 4,437,063.74 | 559,000.16 | 3 |
+| Team 03 | 27.82% | 1,312.93 | 162,147.05 | 4,341,130.18 | 546,914.04 | 5 |
+| Team 04 | 14.52% | 743.97 | 84,589.44 | 4,481,932.26 | 564,652.88 | 1 |
+| Team 05 | 24.10% | 1,125.32 | 140,439.96 | 4,398,970.20 | 554,200.97 | 4 |
 <!-- example-results:end -->
 
 Amounts are CU; policies retain fractional precision. This is round 1 of 5: weighted surplus = closing surplus × **16/127**. These are generated teaching results, not student records or forecasts. See [the complete example inputs and output](docs/EXAMPLE_RESULTS.md).
@@ -177,6 +177,14 @@ Amounts are CU; policies retain fractional precision. This is round 1 of 5: weig
 - `.gitignore` excludes runtime data, credentials, database backups, local handoff notes, environments, and old previews. The clean source release does not include existing classrooms.
 
 **Hosting scope:** this version uses Python's standard-library HTTP server for local or trusted-LAN teaching. It does not include a verified public Railway deployment, Docker setup, or production hosting configuration. Before public hosting, adapt the server and authentication: configure HTTPS, add login rate limiting and secure cookies, and persist SQLite on a volume. GitHub stores source; GitHub Pages alone cannot run this Python backend.
+
+### Round summary and optional AI commentary
+
+**Calculate round** opens the Instructor Dashboard. Investment income (after-tax bond plus stock income), closing surplus and premium market share each have their own descending ranking. Quote ranges are shown separately for the two regions; market share is gross premium share. Select a past round to review its original participants and figures.
+
+In **Market Overview → Edit stock return, catastrophe and ratings**, enable the optional catastrophe before locking. It replaces the manual reference adjustment for that round. Settlement draws one integer from 5 through 20: every team's realized low- and high-risk loss ratios rise by that many percentage points after the regional shock. Changing the event toggle requires resubmission. The draw is stored in the round, and the event toggle resets for the next round.
+
+The dashboard ends with an offline statistical summary. To enable the separate **Generate AI commentary** button, set `OPENAI_API_KEY` and `OPENAI_MODEL` (a Responses API text model available to your account) as server environment variables, e.g. in Railway Variables. The API may incur separate provider charges. Only an instructor can request a note. Only numeric round aggregates and ranges are sent: no login details, classroom IDs, team names or individual decisions. One successful note is saved per round; refreshing reuses it. A missing configuration or API failure leaves all results available. [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create).
 
 ## Tests and development
 

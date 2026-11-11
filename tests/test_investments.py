@@ -22,7 +22,7 @@ class InvestmentTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_bond_participation_strict_threshold_for_every_class_size(self):
-        for count in range(2, 21):
+        for count in range(2, 51):
             g = self.store.create(dict(teams=count, demo=True))
             for selected in range(count+1):
                 for i, d in enumerate(g['decisions'].values()):

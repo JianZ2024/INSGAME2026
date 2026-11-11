@@ -8,7 +8,7 @@ import sqlite3
 from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
-from engine import DEFAULT_DECISION, DEFAULT_ENV, DEFAULT_ROUNDS, MAX_ROUNDS, RULES_VERSION, WEIGHT_RULE, INVESTMENT_RULE, MODEL_RULE, PREMIUM_RULE, calculate_round, initial_state, number, round_weights, rank_results, validate_decision, validate_env
+from engine import DEFAULT_DECISION, DEFAULT_ENV, DEFAULT_ROUNDS, MAX_TEAMS, MAX_ROUNDS, RULES_VERSION, WEIGHT_RULE, INVESTMENT_RULE, MODEL_RULE, PREMIUM_RULE, calculate_round, initial_state, number, round_weights, rank_results, validate_decision, validate_env
 
 
 def now():
@@ -150,7 +150,7 @@ class Store:
             for g in pending:
                 previous_rules = g.get('rules', '2026.3')
                 g['env'].pop('bond_return', None)
-                g['env'].setdefault('stock_return', DEFAULT_ENV['stock_return'])
+                g['env'].setdefault('stock_return', .12)  # Preserve the legacy default for pre-investment classrooms.
                 for d in g['decisions'].values():
                     for key in ('bond_strategy', 'stock_strategy'):
                         d['values'].setdefault(key, DEFAULT_DECISION[key])
@@ -315,7 +315,7 @@ class Store:
             raise ValueError('Teams can only change while decisions are open.')
         count = len(g['teams'])
         if action == 'add_team':
-            if count >= 20: raise ValueError('A classroom can have at most 20 active teams.')
+            if count >= MAX_TEAMS: raise ValueError(f'A classroom can have at most {MAX_TEAMS} active teams.')
             tid = g.get('next_team_id', max(t['id'] for t in g['teams']) + 1)
             g['next_team_id'] = tid + 1
             g['teams'].append(self.new_team(tid))
@@ -347,7 +347,7 @@ class Store:
             entry.update(submitted=False, saved_at=now())
 
     def create(self, data):
-        n = number(data.get('teams', 5), 'Number of teams', 2, 20, True)
+        n = number(data.get('teams', 5), 'Number of teams', 2, MAX_TEAMS, True)
         total_rounds = number(data.get('total_rounds', DEFAULT_ROUNDS), 'Number of rounds', 1, MAX_ROUNDS, True)
         name = str(data.get('name', '')).strip()[:60] or 'Insurance Market Lab'
         demo = data.get('demo') is True
@@ -359,7 +359,6 @@ class Store:
                     model_rule=MODEL_RULE, risk_seed=secrets.token_hex(16),
                     market=dict(initial_premium=5_000_000*n, policies=1000*n),
                     teams=[], decisions={}, history=[], audit=[])
-        game['env'] = validate_env(dict(game['env'], stock_return=data.get('stock_return', DEFAULT_ENV['stock_return'])))
         for i in range(1, n+1):
             team = self.new_team(i)
             game['teams'].append(team)
@@ -413,7 +412,9 @@ class Store:
                 elif action == 'environment':
                     if g['phase'] != 'open': raise ValueError('Market conditions can only be changed while submissions are open.')
                     new_env = validate_env(data.get('env', {}))
-                    if new_env['stock_return'] != g['env']['stock_return']: self.reopen_submissions(g)
+                    if (new_env['stock_return'] != g['env']['stock_return'] or
+                        new_env.get('random_catastrophe',False) != g['env'].get('random_catastrophe',False)):
+                        self.reopen_submissions(g)
                     g['env'] = new_env
                     ratings = data.get('ratings', {})
                     for t in g['teams']:
@@ -430,9 +431,10 @@ class Store:
                     g['phase'] = 'open'
                 elif action == 'settle':
                     if g['phase'] != 'locked': raise ValueError('Lock decisions first. Each round can only be calculated once.')
+                    event_pp = 5 + secrets.randbelow(16) if g['env'].get('random_catastrophe') else 0
                     results = calculate_round(g['env'], g['teams'], g['decisions'], g['period'], g['total_rounds'],
-                                              g['market']['policies'], g['risk_seed'])
-                    g['history'].append(dict(period=g['period'], env=copy.deepcopy(g['env']),
+                                              g['market']['policies'], g['risk_seed'], event_pp)
+                    g['history'].append(dict(period=g['period'], env=copy.deepcopy(g['env']), catastrophe_event_pp=event_pp,
                         market=dict(potential_policies=g['market']['policies'],
                                     total_policies=sum(r['policies'] for r in results),
                                     total_premium=sum(r['gross'] for r in results),
@@ -451,6 +453,7 @@ class Store:
                     by_id = {r['team_id']: r for r in g['history'][-1]['results']}
                     for t in g['teams']:
                         t['state'] = by_id[t['id']]['next_state']
+                    g['env'].pop('random_catastrophe', None)
                     g['period'] += 1
                     if 'market' in g['history'][-1]:
                         g['market']['policies'] = g['history'][-1]['market']['next_policies']
@@ -476,6 +479,7 @@ class Store:
             for t in h.get('starting_teams', []): t.pop('pin', None)
         if actor.get('role') == 'teacher': return g
         if actor.get('game_id') != g['id']: raise PermissionError('You do not have access to this game.')
+        g['env'].pop('stock_return', None)
         tid = actor['team_id']
         if str(tid) not in g['decisions']: raise PermissionError('Team is no longer active.')
         for t in g['teams']:
@@ -489,9 +493,13 @@ class Store:
             board = [dict(team_id=r['team_id'], name=r['name'], share=r['share'], surplus=r['next_state']['surplus'],
                           score=r['score'], cumulative=r['cumulative'], rank=r['rank'],
                           overall_rank=r['overall_rank']) for r in h['results']]
+            h['env'].pop('stock_return', None)
+            own_results = [{k:v for k,v in r.items() if k not in ('stock_return','stock_base_return')}
+                           for r in h['results'] if r['team_id']==tid]
             history.append(dict(period=h['period'], env=h['env'], market=h.get('market'), published=True, rules=h['rules'],
+                                catastrophe_event_pp=h.get('catastrophe_event_pp',0),
                                 weight=h.get('weight', g['round_weights'][h['period'] - 1]),
-                                results=[r for r in h['results'] if r['team_id']==tid], leaderboard=board))
+                                results=own_results, leaderboard=board))
         g['history'] = history
         g.pop('audit', None)
         g.pop('risk_seed', None)

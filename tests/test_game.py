@@ -33,8 +33,35 @@ class GameTests(unittest.TestCase):
         self.g = self.store.mutate(self.g['id'],TEACHER,action,dict(period=self.g['period'],revision=self.g['revision'],**kw))
         return self.g
 
+    def test_common_catastrophe_is_additive_and_settled_once(self):
+        for draw in (5,20):
+            self.g = self.store.create(dict(teams=3, demo=True))
+            self.move('environment', env=dict(self.g['env'], random_catastrophe=True, catastrophe=.25))
+            plain=calculate_round(dict(self.g['env'],catastrophe=0,random_catastrophe=False),
+                self.g['teams'],self.g['decisions'],1,risk_seed=self.g['risk_seed'])
+            self.submit_all()
+            self.move('lock')
+            with patch('store.secrets.randbelow',return_value=draw-5) as rng:
+                self.move('settle')
+                with self.assertRaises(ValueError): self.move('settle')
+                self.move('publish')
+                self.move('next')
+                rng.assert_called_once_with(16)
+            record=self.g['history'][0]
+            self.assertEqual(record['catastrophe_event_pp'],draw)
+            self.assertFalse(self.g['env'].get('random_catastrophe'))
+            for original, actual in zip(plain,record['results']):
+                for region in ('low','high'):
+                    a,b=original['regions'][region],actual['regions'][region]
+                    self.assertAlmostEqual(b['loss_ratio']-a['loss_ratio'], draw/100)
+                    self.assertAlmostEqual(b['losses']-a['losses'], b['earned']*draw/100)
+                    self.assertEqual(b['policies'],a['policies'])
+
     def test_roster_and_return_across_rounds(self):
-        self.g = self.store.create(dict(teams=3, demo=True, stock_return=-.08))
+        self.g = self.store.create(dict(teams=3, demo=True))
+        self.assertEqual(self.g['env']['stock_return'], .05)
+        self.move('environment', env=dict(self.g['env'], stock_return=-.08))
+        self.submit_all()
         removed = dict(role='student', game_id=self.g['id'], team_id=2)
         self.move('lock')
         with self.assertRaises(ValueError): self.move('remove_team', team_id=2)
@@ -65,17 +92,17 @@ class GameTests(unittest.TestCase):
         self.assertEqual({r['team_id'] for r in self.g['history'][1]['results']}, {1,3,4})
 
     def test_roster_limits_and_access(self):
-        self.g = self.store.create(dict(teams=20, demo=True))
+        self.g = self.store.create(dict(teams=50, demo=True))
         with self.assertRaises(ValueError): self.move('add_team')
         actor = dict(role='student', game_id=self.g['id'], team_id=1)
         with self.assertRaises(PermissionError):
             self.store.mutate(self.g['id'], actor, 'remove_team', dict(period=1, revision=0, team_id=2))
-        self.move('remove_team', team_id=20)
-        self.assertEqual(self.g['market'], dict(initial_premium=95_000_000, policies=19000))
+        self.move('remove_team', team_id=50)
+        self.assertEqual(self.g['market'], dict(initial_premium=245_000_000, policies=49000))
         self.move('add_team')
-        self.assertEqual(self.g['teams'][-1]['id'],21)
-        self.assertEqual(len(self.g['decisions']),20)
-        with self.assertRaises(ValueError): self.store.create(dict(stock_return=1.01))
+        self.assertEqual(self.g['teams'][-1]['id'],51)
+        self.assertEqual(len(self.g['decisions']),50)
+        with self.assertRaises(ValueError): self.store.create(dict(teams=51))
 
     def submit_all(self):
         for t in self.g['teams']:
@@ -85,7 +112,7 @@ class GameTests(unittest.TestCase):
     def test_symmetric_hand_calculation(self):
         # Independently calculated equal five-company case from RULES.md.
         with patch('engine.regional_shock', return_value=1.):
-            rs = calculate_round(DEFAULT_ENV,self.g['teams'],self.g['decisions'],1)
+            rs = calculate_round(dict(DEFAULT_ENV, stock_return=.12),self.g['teams'],self.g['decisions'],1)
         for r in rs:
             self.assertAlmostEqual(r['share'],.2)
             # 750 * 100 + 250 * 150 = 112,500 gross. Opening net is 4.5m;
@@ -391,6 +418,38 @@ class HTTPTests(unittest.TestCase):
             with urllib.request.urlopen(req) as r:return r.status,r.headers,r.read()
         except urllib.error.HTTPError as r:return r.code,r.headers,r.read()
 
+    def test_teacher_round_commentary_cache_and_failure(self):
+        import os
+        from commentary import round_facts
+        _,h,_=self.request('/api/login',dict(role='teacher',password='testing-password'))
+        admin=h['Set-Cookie'].split(';')[0]
+        _,_,body=self.request('/api/create',dict(teams=3,demo=True),admin)
+        g=json.loads(body)
+        _,h,_=self.request('/api/login',dict(code=g['id'],team_id=1,pin=g['teams'][0]['pin']))
+        student=h['Set-Cookie'].split(';')[0]
+        req=dict(game_id=g['id'],period=1)
+        self.assertEqual(self.request('/api/commentary',req,admin)[0],400)
+        for action in ('lock','settle'):
+            _,_,body=self.request('/api/action',dict(req,action=action,revision=g['revision']),admin)
+            g=json.loads(body)
+        facts=round_facts(g['history'][0])
+        self.assertNotIn(g['id'],json.dumps(facts))
+        self.assertNotIn('Team 01',json.dumps(facts))
+        self.assertEqual(facts['teams'],3)
+        with patch.dict(os.environ,{'OPENAI_API_KEY':''}):
+            self.assertEqual(self.request('/api/commentary',req,admin)[0],400)
+        with patch('app.generate_commentary',return_value='A short round analysis.') as generate:
+            self.assertEqual(self.request('/api/commentary',req,student)[0],403)
+            for _ in range(2):
+                status,_,body=self.request('/api/commentary',req,admin)
+                self.assertEqual(status,200)
+                self.assertEqual(json.loads(body)['commentary'],'A short round analysis.')
+            generate.assert_called_once()
+        _,_,body=self.request('/api/game?id='+g['id'],cookie=admin)
+        fresh=json.loads(body)
+        self.assertEqual(fresh['history'][0]['results'],g['history'][0]['results'])
+        self.assertEqual(self.request('/api/action',dict(req,action='publish',revision=fresh['revision']),admin)[0],200)
+
     def test_public_rules_and_removed_team_session(self):
         for path in ('/how-to-play','/rules'):
             self.assertEqual(self.request(path)[0], 200)
@@ -571,15 +630,27 @@ class HTTPTests(unittest.TestCase):
             status,_,b=self.request('/api/action',dict(game_id=g['id'],action=action,period=1,revision=g['revision']),admin)
             self.assertEqual(status,200);g=json.loads(b)
         _,_,b=self.request('/api/game?id='+g['id'],cookie=student)
-        own=json.loads(b)['history'][0]['results']
+        visible=json.loads(b)
+        self.assertNotIn('stock_return', visible['env'])
+        self.assertNotIn('stock_return', visible['history'][0]['env'])
+        own=visible['history'][0]['results']
         self.assertEqual(len(own),1)
-        self.assertEqual((own[0]['bond_return'],own[0]['stock_return']),(.08,.24))
+        self.assertEqual(own[0]['bond_return'], .08)
+        self.assertNotIn('stock_return', own[0])
+        self.assertNotIn('stock_base_return', own[0])
+        self.assertEqual(g['history'][0]['results'][0]['stock_base_return'], .05)
+        self.assertEqual(g['history'][0]['results'][0]['stock_return'], .10)
+        _,_,instructor_csv=self.request('/api/export?id='+g['id'],cookie=admin)
+        instructor_row=next(csv.DictReader(io.StringIO(instructor_csv.decode('utf-8-sig'))))
+        self.assertEqual(float(instructor_row['Base annual stock return']), .05)
+        self.assertEqual(float(instructor_row['Annual stock return']), .10)
         _,_,b=self.request('/api/export?id='+g['id'],cookie=student)
         rows=list(csv.DictReader(io.StringIO(b.decode('utf-8-sig'))))
         self.assertEqual(len(rows),1)
         self.assertEqual(rows[0]['Bond strategy'],'2')
         self.assertEqual(rows[0]['Stock strategy'],'5')
-        self.assertEqual(float(rows[0]['Annual stock return']),.24)
+        self.assertNotIn('Annual stock return',rows[0])
+        self.assertNotIn('Base annual stock return',rows[0])
         self.assertEqual(float(rows[0]['Annual bond return']),.08)
         self.assertAlmostEqual(float(rows[0]['Low-risk policies'])+float(rows[0]['High-risk policies']),own[0]['policies'])
         self.assertEqual(float(rows[0]['Cumulative weighted surplus']),own[0]['cumulative'])

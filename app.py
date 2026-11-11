@@ -9,6 +9,8 @@ import mimetypes
 import os
 import secrets
 import time
+import threading
+from commentary import generate_commentary
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +27,7 @@ class Server(ThreadingHTTPServer):
 
     def __init__(self, address, directory, admin_key):
         self.store = Store(directory / 'insgame.sqlite3')
+        self.commentary_lock = threading.Lock()
         self.admin_key = admin_key
         super().__init__(address, Handler)
 
@@ -114,15 +117,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(visible, filename=f'INSGAME2026-{game["id"]}.json'); return
             buf = io.StringIO(newline='')
             writer = csv.writer(buf)
-            writer.writerow(['Round','Team','Market share','Net written premium','After-tax underwriting profit','Investment income','Cash','Total assets','Surplus','Closing surplus score','Cumulative weighted surplus','Round rank','Overall rank','Bond strategy','Annual bond return','Stock strategy','Stock multiplier','Base annual stock return','Annual stock return','Low-risk policies','High-risk policies','Low-risk premium','High-risk premium','Low-risk screening','High-risk screening','Low-risk loss ratio','High-risk loss ratio'])
+            writer.writerow(['Round','Team','Market share','Net written premium','After-tax underwriting profit','Investment income','Cash','Total assets','Surplus','Closing surplus score','Cumulative weighted surplus','Round rank','Overall rank','Bond strategy','Annual bond return','Stock strategy','Stock multiplier',*(['Base annual stock return','Annual stock return'] if actor['role']=='teacher' else []),'Low-risk policies','High-risk policies','Low-risk premium','High-risk premium','Low-risk screening','High-risk screening','Low-risk loss ratio','High-risk loss ratio'])
             for h in visible['history']:
                 for r in h['results']:
                     writer.writerow([h['period'], r['name'], r['share'], r['net'], r['underwriting'],
                         r['bond_income']+r['stock_income'], r['next_state']['cash'], r['next_state']['assets'],
                         r['next_state']['surplus'], r['score'], r['cumulative'], r['rank'], r['overall_rank'],
                         r.get('bond_strategy',''), r.get('bond_return',h['env'].get('bond_return','')),
-                        r.get('stock_strategy',''), r.get('stock_multiplier',''), r.get('stock_base_return',''),
-                        r.get('stock_return',h['env'].get('stock_return','')),
+                        r.get('stock_strategy',''), r.get('stock_multiplier',''),
+                        *([r.get('stock_base_return',''),r.get('stock_return',h['env'].get('stock_return',''))] if actor['role']=='teacher' else []),
                         *[r.get('regions',{}).get(key,{}).get(field,'') for field in ('policies','premium','screening','loss_ratio') for key in ('low','high')]])
             self.send(buf.getvalue().encode('utf-8-sig'), kind='text/csv; charset=utf-8', filename=f'INSGAME2026-{game["id"]}.csv'); return
         files = {'/':'index.html', '/how-to-play':'index.html', '/app.js':'app.js', '/dashboard.js':'dashboard.js', '/investment.js':'investment.js', '/market.js':'market.js', '/style.css':'style.css', '/favicon.svg':'favicon.svg'}
@@ -175,6 +178,31 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.store.connection() as db: db.execute('DELETE FROM sessions WHERE token=?',(digest,))
             self.send({'ok':True},cookie='insgame_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return
         actor = self.session()
+        if path == '/api/commentary':
+            if actor['role'] != 'teacher': raise PermissionError('Instructor access required.')
+            game_id, period = data.get('game_id'), data.get('period')
+            if type(period) is not int: raise ValueError('Select a calculated round.')
+            if not self.server.commentary_lock.acquire(blocking=False):
+                raise ValueError('A commentary is being generated. Try again shortly.')
+            try:
+                store = self.server.store
+                game = store.read(game_id)
+                record = next((h for h in game['history'] if h['period']==period), None)
+                if record is None: raise ValueError('Select a calculated round.')
+                comment = record.get('ai_commentary')
+                if not comment:
+                    comment = generate_commentary(record)
+                    # The provider call is outside the write transaction. Merge only the
+                    # note into a fresh copy so concurrent decisions are never overwritten.
+                    with store.connection() as db:
+                        db.execute('BEGIN IMMEDIATE')
+                        game = store.read(game_id, db)
+                        next(h for h in game['history'] if h['period']==period)['ai_commentary'] = comment
+                        game['revision'] += 1
+                        db.execute('UPDATE games SET body=? WHERE id=?', (json.dumps(game),game_id))
+            finally:
+                self.server.commentary_lock.release()
+            self.send({'commentary': comment}); return
         if path == '/api/team-password':
             token = SimpleCookie(self.headers.get('Cookie',''))['insgame_session'].value
             self.send(self.server.store.team_password(actor, hashlib.sha256(token.encode()).hexdigest(), data)); return

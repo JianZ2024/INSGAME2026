@@ -41,7 +41,7 @@ def render_example():
                      f"{d['low_pct']:.0%} / {d['high_pct']:.0%} | {d['strategy']} | "
                      f"{d['advertising']:,.0f} | {d['promotion']:,.0f} |")
     lines += ['', 'All teams use zero screening, 10% reinsurance, 10% cash, 70% bonds, ',
-              '20% stocks, Bond 1 (4%), and Stock 2 (100% of the 12% base return). ',
+              '20% stocks, Bond 1 (4%), and Stock 2 (100% of the 5% demo base return). ',
               'Each opens with 3,000,000 surplus, 1,000 policies, and 9,165,000 total assets.', '',
               '## Calculated results', '',
               '| Team | Market share | Policies | Gross premium | Closing surplus | Weighted surplus | Rank |',

@@ -25,14 +25,34 @@ function comparisonBars(rows,key,label,unit){
  const y=v=>top+(high-v)/(high-low)*(bottom-top),zero=y(0),slot=(width-left-right)/rows.length;
  const guides=Array.from({length:5},(_,i)=>{
   const value=low+(high-low)*i/4;
-  return `<line x1="${left}" x2="${width-right}" y1="${y(value)}" y2="${y(value)}" class="chart-gridline"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end" class="chart-axis">${compact(value)}</text>`;
+  return `<line x1="${left}" x2="${width-right}" y1="${y(value)}" y2="${y(value)}" class="chart-gridline"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end" class="chart-axis">${unit==='%'?value.toFixed(1)+'%':compact(value)}</text>`;
  }).join('');
  const bars=rows.map((r,i)=>{
   const value=values[i],center=left+slot*(i+.5),barWidth=Math.min(48,slot*.64),valueY=y(value);
-  const exact=`${r.name}: ${money(value)}${unit?' '+unit:''}`;
-  return `<g class="chart-mark" data-chart-team="${r.team_id}" role="img" aria-label="${esc(exact)}"><title>${esc(exact)}</title><rect x="${center-barWidth/2}" y="${Math.min(zero,valueY)}" width="${barWidth}" height="${Math.abs(valueY-zero)}" rx="3" fill="${dashboardColor(r.team_id)}"/>${value===0?`<circle cx="${center}" cy="${zero}" r="3" fill="${dashboardColor(r.team_id)}"/>`:''}<text x="${center}" y="${valueY+(value<0?16:-8)}" text-anchor="middle" class="bar-value">${compact(value)}</text><text x="${center}" y="270" text-anchor="middle" class="chart-axis">${esc(r.name)}</text></g>`;
+  const exact=`${r.name}: ${unit==='%'?value.toFixed(2):money(value)}${unit?' '+unit:''}`;
+  return `<g class="chart-mark" data-chart-team="${r.team_id}" role="img" aria-label="${esc(exact)}"><title>${esc(exact)}</title><rect x="${center-barWidth/2}" y="${Math.min(zero,valueY)}" width="${barWidth}" height="${Math.abs(valueY-zero)}" rx="3" fill="${dashboardColor(r.team_id)}"/>${value===0?`<circle cx="${center}" cy="${zero}" r="3" fill="${dashboardColor(r.team_id)}"/>`:''}<text x="${center}" y="${valueY+(value<0?16:-8)}" text-anchor="middle" class="bar-value">${unit==='%'?value.toFixed(1)+'%':compact(value)}</text><text x="${center}" y="270" text-anchor="middle" class="chart-axis">${esc(r.name)}</text></g>`;
  }).join('');
  return `<div class="chart-scroll"><svg class="comparison-chart" style="min-width:${width}px" viewBox="0 0 ${width} 288" role="img" aria-label="${esc(label)} by team${unit?' ('+unit+')':''}">${guides}<line x1="${left}" x2="${width-right}" y1="${zero}" y2="${zero}" class="chart-zero"/>${bars}</svg></div>`;
+}
+
+function rankedChart(rows,label,unit,getValue,caption){
+ const ranked=rows.map(r=>({...r,chartValue:getValue(r)})).filter(r=>Number.isFinite(r.chartValue))
+  .sort((a,b)=>b.chartValue-a.chartValue||a.team_id-b.team_id);
+ return `<section class="card"><h2>${label}</h2><p class="caption">${caption} · Highest to lowest</p>${ranked.length?comparisonBars(ranked,'chartValue',label,unit):'<p>Not recorded for this round.</p>'}</section>`;
+}
+function roundRange(values,format){
+ const nums=values.filter(Number.isFinite);
+ return nums.length?format(Math.min(...nums))+' – '+format(Math.max(...nums)):'Not recorded';
+}
+const quoteText=v=>v.toLocaleString('en-US',{maximumFractionDigits:2})+' CU';
+const shareText=v=>(100*v).toFixed(2)+'%';
+function marketRanges(rows){
+ return `<section class="card"><h2>Market ranges</h2><p class="caption">Lowest to highest across participating teams. Prices are quotes per policy.</p>${['low','high'].map(k=>line(k==='low'?'Low-risk premium':'High-risk premium',roundRange(rows.map(r=>r.regions?.[k]?.premium),quoteText))).join('')}${line('Premium market share',roundRange(rows.map(r=>r.share),shareText))}</section>`;
+}
+function debrief(h,rows){
+ const investment=rows.reduce((n,r)=>n+(r.bond_income||0)+(r.stock_income||0),0);
+ const event=h.catastrophe_event_pp;
+ return `<section class="card"><div class="eyebrow">Round ${h.period} debrief</div><h2>Market commentary</h2><p><b>Statistical summary.</b> Across ${rows.length} teams, market shares ranged from ${roundRange(rows.map(r=>r.share),shareText)}. Combined after-tax investment income was ${money(investment)} CU. ${event?'The catastrophe added '+event+' percentage points to every regional loss ratio.':''}</p>${h.ai_commentary?`<p><b>AI commentary.</b> ${esc(h.ai_commentary)}</p>`:'<button id="ai-debrief">Generate AI commentary</button><p class="caption">Optional: send only anonymous round totals and ranges to OpenAI.</p><p id="debrief-status" role="status"></p>'}</section>`;
 }
 
 function instructorDashboard(){
@@ -41,20 +61,30 @@ function instructorDashboard(){
  if(!history.length)return `<div class="page-title"><div><div class="eyebrow">All teams at a glance</div><h1>Instructor Dashboard</h1><p>${esc(game.name)}</p></div></div><section class="card empty"><h2>Calculate a round to see team performance</h2><p class="muted">Weighted surplus, market share, policy, profit, and asset charts appear after you lock decisions and calculate results. You can review them before publishing.</p><button class="primary" data-nav="overview">Go to classroom overview</button></section>`;
  const h=history.find(x=>x.period===periodView)||history.at(-1),rows=h.results.slice().sort((a,b)=>a.team_id-b.team_id);
  const sum=key=>rows.reduce((n,r)=>n+(['assets','surplus'].includes(key)?r.next_state[key]:r[key]),0);
- return `<div class="page-title"><div><div class="eyebrow">All teams at a glance</div><h1>Instructor Dashboard</h1><p>${esc(game.name)} · Round ${h.period} of ${totalRounds()} · ${h.published?'Published results':'Instructor preview · unpublished'}</p></div><div class="flex wrap"><div class="report-select"><select id="dashboard-period" aria-label="Dashboard round">${history.map(x=>`<option value="${x.period}" ${x.period===h.period?'selected':''}>Round ${x.period}${x.published?'':' · Preview'}</option>`).join('')}</select></div><button id="print">Print</button></div></div>
+ return `<div class="page-title"><div><div class="eyebrow">All teams at a glance</div><h1>Instructor Dashboard</h1><p>${esc(game.name)} · Round ${h.period} of ${totalRounds()} · ${h.published?'Published results':'Instructor preview · unpublished'}</p></div><div class="flex wrap"><div class="report-select"><select id="dashboard-period" aria-label="Dashboard round">${history.map(x=>`<option value="${x.period}" ${x.period===h.period?'selected':''}>Round ${x.period}${x.published?'':' · Preview'}</option>`).join('')}</select></div>${game.phase==='settled'&&h.period===game.period?'<button class="primary" data-action="publish">Publish results</button>':''}<button id="print">Print</button></div></div>
  <div class="metricrow">${metric('Weighted surplus leader',esc(rows.slice().sort((a,b)=>a.overall_rank-b.overall_rank)[0].name),'Highest cumulative weighted surplus',true)}${metric('Policies written',compact(sum('policies')),'Gross policies issued this round')}${metric('Total profit',compact(sum('income')),'After-tax underwriting + investment')}${metric('Closing surplus',compact(sum('surplus')),'Combined net capital at round end')}</div>
  <div class="dashboard-tools"><p class="caption">Select a team in the pie legend to highlight it across all charts. Hover over a bar or slice for its value.</p><button class="quiet small" id="clear-highlight" hidden>Show all teams</button></div><div id="dashboard-selection" class="dashboard-selection" role="status" hidden></div>
- <div class="grid2 dashboard-grid"><section class="card dashboard-score"><div class="chart-heading"><div><h2>Cumulative weighted surplus</h2><p class="caption">The ranking objective · Sum of closing surplus × round weight</p></div>${tag('SCORE','blue')}</div>${comparisonBars(rows,'cumulative','Cumulative weighted surplus','CU')}</section><section class="card"><div class="chart-heading"><div><h2>Market share</h2><p class="caption">Share of total market premium · %</p></div>${tag('ROUND '+h.period,'blue')}</div>${marketSharePie(rows)}</section>
+ ${h.catastrophe_event_pp?`<div class="notice warn">Catastrophe realized: +${h.catastrophe_event_pp} percentage points on every regional loss ratio.</div>`:''}
+ <div class="grid2 dashboard-grid">${rankedChart(rows,'Investment income','CU',r=>r.bond_income+r.stock_income,'After-tax bond and stock income')}${rankedChart(rows,'Closing surplus','CU',r=>r.next_state.surplus,'Capital at the end of this round')}${rankedChart(rows,'Market share','%',r=>100*r.share,'Share of gross market premium')}${marketRanges(rows)}<section class="card dashboard-score"><div class="chart-heading"><div><h2>Cumulative weighted surplus</h2><p class="caption">The ranking objective · Sum of closing surplus × round weight</p></div>${tag('SCORE','blue')}</div>${comparisonBars(rows,'cumulative','Cumulative weighted surplus','CU')}</section><section class="card"><div class="chart-heading"><div><h2>Market share</h2><p class="caption">Share of total market premium · %</p></div>${tag('ROUND '+h.period,'blue')}</div>${marketSharePie(rows)}</section>
  <section class="card"><div class="chart-heading"><div><h2>Policies written</h2><p class="caption">Gross policies issued during the selected round</p></div>${tag('POLICIES','gray')}</div>${comparisonBars(rows,'policies','Policies written','policies')}</section>
  <section class="card"><div class="chart-heading"><div><h2>Profit / loss</h2><p class="caption">After-tax underwriting profit + investment income</p></div>${tag('CU','gray')}</div>${comparisonBars(rows,'income','Profit / loss','CU')}<p class="chart-footnote">Losses appear below the zero line. This is the selected round's income, not cumulative profit.</p></section>
- <section class="card"><div class="chart-heading"><div><h2>Total assets</h2><p class="caption">Closing cash + bonds + stocks</p></div>${tag('CU','gray')}</div>${comparisonBars(rows,'assets','Total assets','CU')}<p class="chart-footnote">Each chart uses its own scale. Team colors are consistent across all four charts.</p></section></div>
- <section class="card flush dashboard-table"><div class="cardhead"><h2>Team performance · Round ${h.period}</h2><p class="caption">Exact values rounded to whole currency units or policies. Open a report for the full financial breakdown.</p></div><div class="table-scroll"><table><thead><tr><th>Team</th><th class="num">Market share</th><th class="num">Policies written</th><th class="num">Profit / loss (CU)</th><th class="num">Assets (CU)</th><th class="num">Surplus (CU)</th><th class="num">Weighted surplus (CU)</th><th class="num">Overall rank</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr data-chart-team="${r.team_id}"><td><span class="teamname"><i class="teamdot" style="background:${dashboardColor(r.team_id)}"></i>${esc(r.name)}</span></td><td class="num">${pct(r.share)}</td><td class="num">${money(r.policies)}</td><td class="num ${r.income<0?'negative':'positive'}">${money(r.income)}</td><td class="num">${money(r.next_state.assets)}</td><td class="num">${money(r.next_state.surplus)}</td><td class="num"><b>${money(r.cumulative)}</b></td><td class="num">#${r.overall_rank}</td><td><button class="quiet small" data-inspect-team="${r.team_id}" data-inspect-period="${h.period}">View report</button></td></tr>`).join('')}</tbody></table></div></section>`;
+ <section class="card"><div class="chart-heading"><div><h2>Total assets</h2><p class="caption">Closing cash + bonds + stocks</p></div>${tag('CU','gray')}</div>${comparisonBars(rows,'assets','Total assets','CU')}<p class="chart-footnote">Each chart uses its own scale. Team colors are consistent across the charts.</p></section></div>
+ <section class="card flush dashboard-table"><div class="cardhead"><h2>Team performance · Round ${h.period}</h2><p class="caption">Exact values rounded to whole currency units or policies. Open a report for the full financial breakdown.</p></div><div class="table-scroll"><table><thead><tr><th>Team</th><th class="num">Market share</th><th class="num">Policies written</th><th class="num">Profit / loss (CU)</th><th class="num">Assets (CU)</th><th class="num">Surplus (CU)</th><th class="num">Weighted surplus (CU)</th><th class="num">Overall rank</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr data-chart-team="${r.team_id}"><td><span class="teamname"><i class="teamdot" style="background:${dashboardColor(r.team_id)}"></i>${esc(r.name)}</span></td><td class="num">${pct(r.share)}</td><td class="num">${money(r.policies)}</td><td class="num ${r.income<0?'negative':'positive'}">${money(r.income)}</td><td class="num">${money(r.next_state.assets)}</td><td class="num">${money(r.next_state.surplus)}</td><td class="num"><b>${money(r.cumulative)}</b></td><td class="num">#${r.overall_rank}</td><td><button class="quiet small" data-inspect-team="${r.team_id}" data-inspect-period="${h.period}">View report</button></td></tr>`).join('')}</tbody></table></div></section>${debrief(h,rows)}`;
 }
 
 function bindDashboard(){
  if(!teacher()||view!=='dashboard')return;
  const control=$('#dashboard-period');
  if(!control)return;
+ const ai=$('#ai-debrief');
+ if(ai)ai.onclick=async()=>{
+  const id=game.id,round=Number(control.value),status=$('#debrief-status');
+  ai.disabled=true;status.textContent='Generating commentary…';
+  try{
+   const data=await api('/api/commentary',{game_id:id,period:round});
+   if(game?.id===id){const record=game.history.find(h=>h.period===round);if(record)record.ai_commentary=data.commentary;if(view==='dashboard')render();}
+  }catch(err){status.textContent=err.message;ai.disabled=false;}
+ };
  control.onchange=e=>{periodView=Number(e.target.value);render();};
  let highlighted=null;
  const select=id=>{
