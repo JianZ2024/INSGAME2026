@@ -28,3 +28,13 @@ assert(!rule.includes('3 × surplus'));
 const historical=run('regionBreakdown({})');assert(historical.includes('Historical market model'));
 run("game.teams[0].name='<script>alert(1)</script>'");assert(!run('decisions()').includes('<script>alert(1)</script>'));
 console.log('Market UI checks passed: dual pricing/mix/screening fields, strategy explanations, weighted surplus, locked fields, legacy reports, and escaping.');
+
+run('game.env.stock_return=-.05');
+assert(run('investmentRules()').includes('-4.0%, -5.0%, -6.0%, -7.0%, -10.0%'));
+html=run('decisions()');
+for(const hint of ['80–120 CU','120–180 CU','60–90%','10–40%','0–1%','own book'])assert(html.includes(hint));
+run('game=null;user=null');
+const guide=run('marketRules()');
+assert(guide.includes('One round, one year')&&guide.includes('highest cumulative weighted surplus'));
+assert(guide.includes('instructor-set base of 8%'));
+console.log('Public rules, instructor stock scenarios and regional input guidance passed.');

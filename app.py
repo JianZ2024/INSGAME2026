@@ -71,7 +71,8 @@ class Handler(BaseHTTPRequestHandler):
             db.execute('BEGIN IMMEDIATE')
             if actor['role'] == 'student':
                 game = self.server.store.read(actor['game_id'], db)
-                team = next(t for t in game['teams'] if t['id'] == actor['team_id'])
+                team = next((t for t in game['teams'] if t['id'] == actor['team_id']), None)
+                if not team: raise PermissionError('Team is no longer active.')
                 if team.get('password_revision', 0) != credential_revision:
                     raise PermissionError('Team access changed. Please sign in again.')
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
@@ -124,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
                         r.get('stock_return',h['env'].get('stock_return','')),
                         *[r.get('regions',{}).get(key,{}).get(field,'') for field in ('policies','premium','screening','loss_ratio') for key in ('low','high')]])
             self.send(buf.getvalue().encode('utf-8-sig'), kind='text/csv; charset=utf-8', filename=f'INSGAME2026-{game["id"]}.csv'); return
-        files = {'/':'index.html', '/app.js':'app.js', '/dashboard.js':'dashboard.js', '/investment.js':'investment.js', '/market.js':'market.js', '/style.css':'style.css', '/favicon.svg':'favicon.svg'}
+        files = {'/':'index.html', '/how-to-play':'index.html', '/app.js':'app.js', '/dashboard.js':'dashboard.js', '/investment.js':'investment.js', '/market.js':'market.js', '/style.css':'style.css', '/favicon.svg':'favicon.svg'}
         if path == '/rules':
             self.send((ROOT/'RULES.md').read_bytes(), kind='text/plain; charset=utf-8'); return
         if path not in files:

@@ -22,7 +22,7 @@ function investmentControls(d,disabled){
  <label class="investment-choice"><input type="radio" name="bond_strategy" value="2" ${d.bond_strategy===2?'checked':''} ${off} required><span><b>Strategy 2 · Participation-based</b><small>8% if fewer than 30% of all teams select it; otherwise 2%.</small></span><strong>8% / 2%</strong></label>
  <p class="caption">${bondThresholdText(game.teams.length)} Counts all teams selecting this strategy, even with 0% in bonds. Determined when the round is calculated.</p></fieldset>
  <fieldset class="investment-options"><legend>Stock strategy</legend>
- <p class="caption">Base annual return: <b>${pct(base)}</b>. Choose one multiplier:</p>
+ <p class="caption">Instructor-set base annual stock return for this round: <b>${pct(base)}</b>. Choose one multiplier:</p>
  ${stockMultipliers.map((m,i)=>`<label class="investment-choice"><input type="radio" name="stock_strategy" value="${i+1}" ${d.stock_strategy===i+1?'checked':''} ${off} required><span><b>Strategy ${i+1} · ${Math.round(m*100)}% of base</b><small>${pct(base)} × ${m.toFixed(1)}</small></span><strong>${pct(base*m)}</strong></label>`).join('')}
  </fieldset></div><p class="caption investment-footnote">Rates are annual, before investment tax; each round represents one year. Bond income retains 85% and stock income 66% after tax. Rebalancing fee: 0.5% of securities traded.</p></section>`;
 }
@@ -47,5 +47,7 @@ function investmentReport(r,h){
 }
 
 function investmentRules(){
- return `<section class="card"><h2>Investment strategies and cash requirement</h2><p>Each round represents one year. Cash must be at least 10% of the opening allocation; cash, bonds, and stocks must total 100%. Later trading costs and operating cash flows can reduce the closing cash ratio.</p><p><b>Bonds:</b> Strategy 1 returns 4%. Strategy 2 returns 8% only if fewer than 30% of all teams select it; at 30% or above it returns 2%. Selection counts even with zero bond allocation.</p><p><b>Stocks:</b> Strategies 1–5 apply 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return. At a 12% base, the rates are 9.6%, 12%, 14.4%, 16.8%, and 24%. These are multipliers, not standalone annual returns. A negative base also has its loss multiplied.</p><p>Rates are before tax. Bond income retains 85% and stock income 66%. Rebalancing costs 0.5% of securities traded.</p></section>`;
+ const base=game?.env?.stock_return;
+ const rateText=Number.isFinite(base)?`For this round the instructor set a base of ${pct(base)}. The five annual rates are ${stockMultipliers.map(m=>pct(base*m)).join(', ')}.`:'For example, at an instructor-set base of 8%, the five annual rates are 6.4%, 8%, 9.6%, 11.2% and 16%.';
+ return `<section class="card"><h2>Investment strategies and cash requirement</h2><p>Each round represents one year. Cash must be at least 10% of the opening allocation; cash, bonds, and stocks must total 100%. Later trading costs and operating cash flows can reduce the closing cash ratio.</p><p><b>Bonds:</b> Strategy 1 returns 4%. Strategy 2 returns 8% only if fewer than 30% of all teams select it; at 30% or above it returns 2%. Selection counts even with zero bond allocation.</p><p><b>Stocks:</b> Strategies 1–5 apply 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return. ${rateText} These are multipliers, not standalone annual returns. A negative base also has its loss multiplied.</p><p>Rates are before tax. Bond income retains 85% and stock income 66%. Rebalancing costs 0.5% of securities traded.</p></section>`;
 }

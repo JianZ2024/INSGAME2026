@@ -305,6 +305,47 @@ class Store:
             db.execute('UPDATE games SET body=? WHERE id=?', (json.dumps(g, allow_nan=False), game_id))
             return g
 
+    @staticmethod
+    def new_team(team_id):
+        return dict(id=team_id, name=f'Team {team_id:02}', pin=secrets.token_hex(4).upper(),
+                    rating=1, state=initial_state())
+
+    def change_roster(self, db, g, action, data):
+        if g['phase'] != 'open':
+            raise ValueError('Teams can only change while decisions are open.')
+        count = len(g['teams'])
+        if action == 'add_team':
+            if count >= 20: raise ValueError('A classroom can have at most 20 active teams.')
+            tid = g.get('next_team_id', max(t['id'] for t in g['teams']) + 1)
+            g['next_team_id'] = tid + 1
+            g['teams'].append(self.new_team(tid))
+            g['decisions'][str(tid)] = dict(values=DEFAULT_DECISION.copy(), submitted=False, saved_at=None)
+        else:
+            if count <= 2: raise ValueError('Keep at least two active teams.')
+            tid = data.get('team_id')
+            team = next((t for t in g['teams'] if t['id'] == tid), None)
+            if team is None: raise ValueError('Unknown team.')
+            # Never recycle even the largest team number in an older classroom.
+            g.setdefault('next_team_id', max(t['id'] for t in g['teams']) + 1)
+            g['teams'].remove(team)
+            del g['decisions'][str(tid)]
+            db.execute('DELETE FROM team_passwords WHERE game_id=? AND team_id=?', (g['id'],tid))
+            revoked = [(key,) for key,body in db.execute('SELECT token,body FROM sessions')
+                       if json.loads(body) == dict(role='student', game_id=g['id'], team_id=tid)]
+            db.executemany('DELETE FROM sessions WHERE token=?', revoked)
+        active = len(g['teams'])
+        if not g['history']:
+            g['market'].update(initial_premium=5_000_000*active, policies=1000*active)
+        else:
+            g['market']['policies'] *= active / count
+        self.reopen_submissions(g)
+        return tid
+
+    @staticmethod
+    def reopen_submissions(g):
+        for entry in g['decisions'].values():
+            entry.update(submitted=False, saved_at=now())
+
     def create(self, data):
         n = number(data.get('teams', 5), 'Number of teams', 2, 20, True)
         total_rounds = number(data.get('total_rounds', DEFAULT_ROUNDS), 'Number of rounds', 1, MAX_ROUNDS, True)
@@ -318,8 +359,9 @@ class Store:
                     model_rule=MODEL_RULE, risk_seed=secrets.token_hex(16),
                     market=dict(initial_premium=5_000_000*n, policies=1000*n),
                     teams=[], decisions={}, history=[], audit=[])
+        game['env'] = validate_env(dict(game['env'], stock_return=data.get('stock_return', DEFAULT_ENV['stock_return'])))
         for i in range(1, n+1):
-            team = dict(id=i, name=f'Team {i:02}', pin=secrets.token_hex(4).upper(), rating=1, state=initial_state())
+            team = self.new_team(i)
             game['teams'].append(team)
             d = DEFAULT_DECISION.copy()
             if demo:
@@ -349,7 +391,8 @@ class Store:
                 raise ValueError('The game has changed. Refresh and try again.')
             if action == 'decision':
                 if g['phase'] != 'open': raise ValueError('This round is locked. Decisions cannot be edited.')
-                team_id = int(number(data.get('team_id'), 'Team', 1, len(g['teams']), True))
+                team_id = int(number(data.get('team_id'), 'Team', 1, max(t['id'] for t in g['teams']), True))
+                if str(team_id) not in g['decisions']: raise ValueError('Team is no longer active.')
                 if not teacher and team_id != actor.get('team_id'):
                     raise PermissionError('You can only edit your own team decisions.')
                 current = g['decisions'][str(team_id)]
@@ -359,7 +402,9 @@ class Store:
                                                     submitted=data.get('submitted') is True, saved_at=now())
             else:
                 if not teacher: raise PermissionError('Instructor access required.')
-                if action == 'rounds':
+                if action in ('add_team','remove_team'):
+                    affected_team = self.change_roster(db, g, action, data)
+                elif action == 'rounds':
                     if g['phase'] != 'open' or g['history']:
                         raise ValueError('The number of rounds can only be changed before the first calculation, while submissions are open.')
                     g['total_rounds'] = number(data.get('total_rounds'), 'Number of rounds', 1, MAX_ROUNDS, True)
@@ -367,7 +412,9 @@ class Store:
                     g['rules'] = RULES_VERSION
                 elif action == 'environment':
                     if g['phase'] != 'open': raise ValueError('Market conditions can only be changed while submissions are open.')
-                    g['env'] = validate_env(data.get('env', {}))
+                    new_env = validate_env(data.get('env', {}))
+                    if new_env['stock_return'] != g['env']['stock_return']: self.reopen_submissions(g)
+                    g['env'] = new_env
                     ratings = data.get('ratings', {})
                     for t in g['teams']:
                         t['rating'] = number(ratings.get(str(t['id']), t['rating']), 'Rating', 1, 5, True)
@@ -416,6 +463,7 @@ class Store:
             g['revision'] += 1
             g['audit'].append(dict(at=now(), action=action, period=g['period'],
                                    actor='teacher' if teacher else f"team:{actor['team_id']}"))
+            if action in ('add_team','remove_team'): g['audit'][-1]['team_id'] = affected_team
             db.execute('UPDATE games SET body=? WHERE id=?', (json.dumps(g, allow_nan=False), game_id))
             return g
 
@@ -429,6 +477,7 @@ class Store:
         if actor.get('role') == 'teacher': return g
         if actor.get('game_id') != g['id']: raise PermissionError('You do not have access to this game.')
         tid = actor['team_id']
+        if str(tid) not in g['decisions']: raise PermissionError('Team is no longer active.')
         for t in g['teams']:
             t.pop('pin', None)
             if t['id'] != tid:
@@ -436,7 +485,7 @@ class Store:
         g['decisions'] = {str(tid): g['decisions'][str(tid)]}
         history = []
         for h in g['history']:
-            if not h['published']: continue
+            if not h['published'] or not any(r['team_id']==tid for r in h['results']): continue
             board = [dict(team_id=r['team_id'], name=r['name'], share=r['share'], surplus=r['next_state']['surplus'],
                           score=r['score'], cumulative=r['cumulative'], rank=r['rank'],
                           overall_rank=r['overall_rank']) for r in h['results']]

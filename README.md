@@ -45,7 +45,7 @@ This is a synthetic teaching model, not an estimate of a real insurance market. 
 - Screening is fully expensed and has diminishing returns: spending 1% of regional premium reduces the reference-price loss ratio by 2.5 percentage points, approaching a 5-point cap.
 - Total market premium responds to demand, prices, and policy mix. Customer growth defaults to 2% and is editable by the instructor.
 - Bond 1 earns 4%. Bond 2 earns 8% when **strictly fewer than 30% of all teams** select it; otherwise it earns 2%. Selection counts even with zero bond allocation.
-- Stock choices are **80%, 100%, 120%, 140%, or 200% of the base return**. At the default 12% base, the rates are **9.6%, 12%, 14.4%, 16.8%, and 24%**. A negative base also multiplies losses.
+- Stock choices are **80%, 100%, 120%, 140%, or 200% of the base return**. At an example 12% base, the rates are **9.6%, 12%, 14.4%, 16.8%, and 24%**. A negative base also multiplies losses.
 - Round weights start at 1 in the middle, multiply by 0.8 moving backward and 1.2 moving forward, then normalize to 100%. Even round counts have equal middle weights. Five rounds use **16:20:25:30:36**, divided by 127.
 
 **Opening book versus new prices:** the historical opening premium benchmark remains **5 million CU per team**, with its associated reserves. At 1,000 policies, a 75%/25% mix and 100/150 prices, new written premium is **112,500 CU**. Opening balances, marketing budgets, and unit costs are not rescaled; first-round reserve movements reflect that change. See [RULES.md](RULES.md).
@@ -98,17 +98,19 @@ python app.py --port 2027 --data-dir ./data-demo
 ### Instructor workflow
 
 1. Select **Instructor**. Open `data/admin_key.txt` on the server computer and enter its contents as the **Teacher password**. It is generated on first startup. If you set `INSGAME_ADMIN_KEY`, use that value instead; for a custom `--data-dir`, read `admin_key.txt` in that directory. The terminal reports the password source without printing the password.
-2. Choose **New classroom**, enter a name, choose 2–20 teams, and set 1–99 rounds (default 5).
+2. Choose **New classroom**, specify the round-one base annual stock return, enter a name, choose 2–20 teams, and set 1–99 rounds (default 5).
 3. In **Classroom Overview**, distribute the game code, team number, and each team's own password. **Copy access details** copies the address and game code; distribute team passwords separately. After a team sets its own password, you see **Set by team** instead of its password. Use **Reset password** on that team's row to issue a new temporary password and sign out that team. Resetting does not change decisions or results.
 4. Review **Company Decisions**. Normal classrooms begin with drafts; all teams must submit before **Lock decisions** becomes available. The instructor may enter decisions on behalf of teams.
 5. Choose **Lock decisions → Calculate round**. Review **Instructor Dashboard** and **Performance Reports** before publishing.
 6. Choose **Publish results → Open next round**. Balances and marketing history carry forward. Teams must submit again. Publishing the final round finishes the game.
 
+In **Classroom Overview**, use **Add team** or **Remove team** while decisions are open (2–20 active teams). Removal signs that team out. Surviving team numbers and completed reports remain unchanged; new teams start with the standard opening book and zero cumulative score. The current customer pool scales with the active team count, preserving potential customers per team. Roster changes and base stock return changes preserve decision values but require fresh submissions. The stock base carries forward until edited.
+
 The round count is editable while submissions are open and before the first calculation. Conditions and ratings are editable while the current round is open. A locked but uncalculated round can be unlocked; calculated rounds cannot be recalculated through the interface.
 
 ### Student workflow
 
-1. Open the instructor's website address and select **Student**.
+1. Open the instructor's website. Select **Read the game rules before signing in** for the public guide, or select **Student** to play.
 2. Enter the **game code**, **team number**, and **team password** provided by the instructor. On first sign-in, choose a shared password (8–128 characters, case-sensitive), or **Skip for now** to keep the assigned password. Skipping applies to the whole team; use **Set team password** in Classroom Overview if you change your mind. Share a new password with your teammates: their previous sessions are signed out. Existing classrooms keep their assigned passwords until a team changes one or the instructor resets it.
 3. Set regional prices and policy proportions, screening, marketing, commissions, underwriting, reinsurance, and investments.
 4. Make regional proportions total 100%, make asset allocations total 100%, and allocate at least 10% to cash.

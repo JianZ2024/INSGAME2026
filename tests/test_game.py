@@ -33,6 +33,50 @@ class GameTests(unittest.TestCase):
         self.g = self.store.mutate(self.g['id'],TEACHER,action,dict(period=self.g['period'],revision=self.g['revision'],**kw))
         return self.g
 
+    def test_roster_and_return_across_rounds(self):
+        self.g = self.store.create(dict(teams=3, demo=True, stock_return=-.08))
+        removed = dict(role='student', game_id=self.g['id'], team_id=2)
+        self.move('lock')
+        with self.assertRaises(ValueError): self.move('remove_team', team_id=2)
+        self.move('settle')
+        previous = copy.deepcopy(self.g['history'][0]['results'])
+        self.assertAlmostEqual(previous[0]['stock_base_return'], -.08)
+        self.move('publish')
+        self.move('next')
+        potential = self.g['market']['policies']
+        self.move('remove_team', team_id=2)
+        with self.assertRaises(PermissionError): self.store.view(self.g, removed)
+        self.assertAlmostEqual(self.g['market']['policies'], potential * 2 / 3)
+        with self.assertRaises(ValueError): self.move('remove_team', team_id=1)
+        self.move('add_team')
+        self.assertEqual([t['id'] for t in self.g['teams']], [1,3,4])
+        self.assertAlmostEqual(self.g['market']['policies'], potential)
+        self.assertEqual(self.store.view(self.g, dict(removed, team_id=4))['history'], [])
+        self.assertEqual(self.g['teams'][-1]['state']['cumulative'], 0)
+        self.submit_all()
+        self.move('environment', env=dict(self.g['env'], stock_return=.20))
+        self.assertFalse(any(d['submitted'] for d in self.g['decisions'].values()))
+        self.submit_all()
+        self.move('lock')
+        self.move('settle')
+        self.assertEqual(previous, self.g['history'][0]['results'])
+        for row in self.g['history'][1]['results']:
+            self.assertAlmostEqual(row['stock_return'], .2 * row['stock_multiplier'])
+        self.assertEqual({r['team_id'] for r in self.g['history'][1]['results']}, {1,3,4})
+
+    def test_roster_limits_and_access(self):
+        self.g = self.store.create(dict(teams=20, demo=True))
+        with self.assertRaises(ValueError): self.move('add_team')
+        actor = dict(role='student', game_id=self.g['id'], team_id=1)
+        with self.assertRaises(PermissionError):
+            self.store.mutate(self.g['id'], actor, 'remove_team', dict(period=1, revision=0, team_id=2))
+        self.move('remove_team', team_id=20)
+        self.assertEqual(self.g['market'], dict(initial_premium=95_000_000, policies=19000))
+        self.move('add_team')
+        self.assertEqual(self.g['teams'][-1]['id'],21)
+        self.assertEqual(len(self.g['decisions']),20)
+        with self.assertRaises(ValueError): self.store.create(dict(stock_return=1.01))
+
     def submit_all(self):
         for t in self.g['teams']:
             d = self.g['decisions'][str(t['id'])]
@@ -346,6 +390,22 @@ class HTTPTests(unittest.TestCase):
         try:
             with urllib.request.urlopen(req) as r:return r.status,r.headers,r.read()
         except urllib.error.HTTPError as r:return r.code,r.headers,r.read()
+
+    def test_public_rules_and_removed_team_session(self):
+        for path in ('/how-to-play','/rules'):
+            self.assertEqual(self.request(path)[0], 200)
+        self.assertEqual(self.request('/api/games')[0], 403)
+        _, h, _ = self.request('/api/login', dict(role='teacher', password='testing-password'))
+        admin = h['Set-Cookie'].split(';')[0]
+        _, _, b = self.request('/api/create', dict(teams=3), admin)
+        g = json.loads(b)
+        login = dict(role='student', code=g['id'], team_id=2, pin=g['teams'][1]['pin'])
+        _, h, _ = self.request('/api/login', login)
+        student = h['Set-Cookie'].split(';')[0]
+        self.assertEqual(self.request('/api/action', dict(game_id=g['id'], action='remove_team',
+                         team_id=2, period=1, revision=g['revision']), admin)[0], 200)
+        self.assertEqual(self.request('/api/game?id='+g['id'], cookie=student)[0], 403)
+        self.assertEqual(self.request('/api/login', login)[0], 403)
 
     def test_team_password_lifecycle(self):
         def sign_in(data):

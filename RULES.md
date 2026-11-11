@@ -161,7 +161,7 @@ Cash allocation must be **at least 10%**; cash, bonds, and stocks total 100%. Th
 
 - Bond strategy 1: fixed annual return 4%.
 - Bond strategy 2: 8% if strictly fewer than 30% of all teams choose it, otherwise 2%. Exactly 30% earns 2%. Teams selecting it count even with zero bond allocation. In a 3-team game, any selection receives 2%.
-- Stock strategies 1–5: 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return (default 12%, permitted −100% to 100%). At a 12% base, resulting rates are 9.6%, 12%, 14.4%, 16.8%, and 24%. A negative base multiplies the loss. These choices add no independent random risk.
+- Stock strategies 1–5: 80%, 100%, 120%, 140%, or 200% of the instructor's base annual stock return (set at classroom creation and editable in each open round; demo starts at 12%; permitted −100% to 100%). At a 12% base, resulting rates are 9.6%, 12%, 14.4%, 16.8%, and 24%. A negative base multiplies the loss. These choices add no independent random risk.
 - Rates are before investment tax. Bond income retains 85%; stock income retains 66%. Strategy changes alone add no fee; the 0.5% fee applies to changes in the amounts of securities held.
 
 ## 9. Workflow, privacy, and upgrade
@@ -179,3 +179,7 @@ The 2026.6 premium update first saves `insgame.sqlite3.before-premiums-2026.6-<i
 ## 10. Verification
 
 Automated checks cover independently calculated symmetric accounts, weights for 1–99 rounds, exact policy splits including single-region books, seeded shared shocks and distribution means, dynamic premium/demand, price versus claim severity, screening bounds and expense, surplus scoring, investment thresholds, 10% cash enforcement, lifecycle/privacy/export behavior, concurrency, recoverable deletion, and backed-up migration. Browser checks cover student entry and submission, reports, and responsive layouts. Exact numerical equivalence with original VBA is not claimed.
+
+## Roster changes
+
+In any open round, an instructor can add or remove a team within the 2–20 active team limit. Existing numbers and all calculated history are preserved. Late entrants start with the standard opening book and earn no score for missed rounds. The current round’s policy potential scales by the new team count divided by the old count. Before the first settlement the opening premium benchmark also scales to 5 million CU per team. Roster edits or changes to the base stock return reopen submissions without discarding the surviving teams’ decisions.
