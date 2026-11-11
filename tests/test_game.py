@@ -347,6 +347,63 @@ class HTTPTests(unittest.TestCase):
             with urllib.request.urlopen(req) as r:return r.status,r.headers,r.read()
         except urllib.error.HTTPError as r:return r.code,r.headers,r.read()
 
+    def test_team_password_lifecycle(self):
+        def sign_in(data):
+            status, headers, _ = self.request('/api/login', data)
+            self.assertEqual(status, 200)
+            return headers['Set-Cookie'].split(';')[0]
+        admin = sign_in(dict(role='teacher', password='testing-password'))
+        _, _, body = self.request('/api/create', dict(teams=2, demo=True), admin)
+        game = json.loads(body)
+        gid = game['id']
+        original = game['teams'][0]['pin']
+        login = dict(role='student', code=gid, team_id=1, pin=original.lower())
+        first, teammate = sign_in(login), sign_in(login)
+        other = sign_in(dict(login, team_id=2, pin=game['teams'][1]['pin']))
+        endpoint = '/api/team-password'
+        change = dict(game_id=gid, team_id=1, password_revision=0, action='skip')
+        def view(cookie):
+            return self.request('/api/game?id='+gid, cookie=cookie)
+        self.assertEqual(self.request(endpoint, change)[0], 403)
+        self.assertEqual(self.request(endpoint, dict(change, team_id=2), first)[0], 403)
+        self.assertEqual(self.request(endpoint, dict(change, action='reset'), first)[0], 403)
+        self.assertEqual(self.request(endpoint, change, first)[0], 200)
+        sign_in(login)
+        self.assertEqual(json.loads(view(teammate)[2])['teams'][0]['password_setup'], 'skipped')
+        custom = 'Mixed Case team pass!'
+        setup = dict(change, password_revision=1, action='set', password=custom)
+        self.assertEqual(self.request(endpoint, dict(setup, password='short'), first)[0], 400)
+        self.assertEqual(self.request(endpoint, dict(setup, password_revision=0), first)[0], 400)
+        self.assertEqual(self.request(endpoint, setup, first)[0], 200)
+        self.assertEqual(view(first)[0], 200)
+        self.assertEqual(view(teammate)[0], 403)
+        self.assertEqual(self.request('/api/login', login)[0], 403)
+        self.assertEqual(self.request('/api/login', dict(login, pin=custom.upper()))[0], 403)
+        fresh = sign_in(dict(login, pin=custom))
+        teacher_view = json.loads(view(admin)[2])
+        self.assertNotIn('pin', teacher_view['teams'][0])
+        for action in ('lock', 'settle'):
+            status, _, b = self.request('/api/action', dict(game_id=gid,period=1,action=action,
+                                          revision=teacher_view['revision']), admin)
+            self.assertEqual(status, 200)
+            teacher_view = json.loads(b)
+        status, _, exported = self.request('/api/export?id='+gid+'&format=json', cookie=admin)
+        self.assertEqual(status, 200)
+        self.assertNotIn(custom.encode(), exported)
+        self.assertNotIn(original.encode(), exported)
+        self.assertNotIn('"pin"', exported.decode())
+        status, _, b = self.request(endpoint, dict(change, password_revision=2, action='reset'), admin)
+        self.assertEqual(status, 200)
+        reset = json.loads(b)
+        self.assertEqual(reset['history'], teacher_view['history'])
+        self.assertEqual(reset['decisions'], teacher_view['decisions'])
+        self.assertEqual(reset['teams'][0]['password_setup'], 'pending')
+        self.assertEqual(self.request('/api/login', dict(login, pin=custom))[0], 403)
+        self.assertEqual(view(fresh)[0], 403)
+        self.assertEqual(view(first)[0], 403)
+        self.assertEqual(view(other)[0], 200)
+        sign_in(dict(login, pin=reset['teams'][0]['pin']))
+
     def test_http_role_isolation_export_and_csrf(self):
         status,_,_=self.request('/api/games');self.assertEqual(status,403)
         status,h,b=self.request('/api/login',{'role':'teacher','password':'testing-password'})

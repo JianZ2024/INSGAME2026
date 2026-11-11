@@ -64,10 +64,16 @@ class Handler(BaseHTTPRequestHandler):
         if required: raise PermissionError('Please sign in first.')
         return None
 
-    def new_session(self, actor):
+    def new_session(self, actor, credential_revision=None):
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode()).hexdigest()
         with self.server.store.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if actor['role'] == 'student':
+                game = self.server.store.read(actor['game_id'], db)
+                team = next(t for t in game['teams'] if t['id'] == actor['team_id'])
+                if team.get('password_revision', 0) != credential_revision:
+                    raise PermissionError('Team access changed. Please sign in again.')
             db.execute('DELETE FROM sessions WHERE expires<?', (time.time(),))
             db.execute('INSERT INTO sessions VALUES (?,?,?)', (digest, json.dumps(actor), time.time()+43200))
         return f'insgame_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200'
@@ -147,21 +153,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def post(self, path, data):
         if path == '/api/login':
+            revision = None
             if data.get('role') == 'teacher':
                 if not hmac.compare_digest(str(data.get('password', '')).encode(), self.server.admin_key.encode()):
                     raise PermissionError('Incorrect instructor password. Check admin_key.txt in the data directory or the configured INSGAME_ADMIN_KEY.')
                 actor = {'role':'teacher'}
             else:
                 try:
-                    g = self.server.store.read(str(data.get('code', '')).strip().upper())
+                    game_id = str(data.get('code', '')).strip().upper()
                     tid = int(data.get('team_id', 0))
-                    team = next(t for t in g['teams'] if t['id'] == tid)
-                    if not hmac.compare_digest(team['pin'], str(data.get('pin', '')).strip().upper()):
-                        raise ValueError()
+                    revision = self.server.store.verify_team(game_id, tid, str(data.get('pin', '')))
                 except (ValueError, StopIteration):
                     raise PermissionError('Incorrect game code, team number, or team password.') from None
-                actor = {'role':'student','game_id':g['id'],'team_id':tid}
-            self.send({'user':actor},cookie=self.new_session(actor)); return
+                actor = {'role':'student','game_id':game_id,'team_id':tid}
+            self.send({'user':actor},cookie=self.new_session(actor, revision)); return
         if path == '/api/logout':
             c = SimpleCookie(self.headers.get('Cookie',''))
             if c.get('insgame_session'):
@@ -169,6 +174,9 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.store.connection() as db: db.execute('DELETE FROM sessions WHERE token=?',(digest,))
             self.send({'ok':True},cookie='insgame_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return
         actor = self.session()
+        if path == '/api/team-password':
+            token = SimpleCookie(self.headers.get('Cookie',''))['insgame_session'].value
+            self.send(self.server.store.team_password(actor, hashlib.sha256(token.encode()).hexdigest(), data)); return
         if path == '/api/create':
             if actor['role'] != 'teacher': raise PermissionError('Instructor access required.')
             self.send(self.server.store.create(data)); return

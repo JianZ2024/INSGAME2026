@@ -1,5 +1,7 @@
 """Transactional game lifecycle and role-filtered views."""
 import copy
+import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -55,6 +57,7 @@ class Store:
         self.path = str(path)
         with self.connection() as db:
             db.execute('CREATE TABLE IF NOT EXISTS games (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS team_passwords (game_id TEXT, team_id INTEGER, salt BLOB NOT NULL, digest BLOB NOT NULL, PRIMARY KEY(game_id,team_id))')
             db.execute('CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, body TEXT NOT NULL, expires REAL NOT NULL)')
         self.upgrade_weights()
         self.upgrade_investments()
@@ -203,6 +206,72 @@ class Store:
             raise ValueError('This classroom has been deleted. Ask the instructor to restore it.')
         return game
 
+    def verify_team(self, game_id, team_id, password):
+        # Read one consistent snapshot. Password derivation does not hold a write lock.
+        with self.connection() as db:
+            db.execute('BEGIN')
+            game = self.read(game_id, db)
+            team = next(t for t in game['teams'] if t['id'] == team_id)
+            revision = team.get('password_revision', 0)
+            if team.get('pin'):
+                valid = hmac.compare_digest(team['pin'].encode(), password.strip().upper().encode())
+            else:
+                row = db.execute('SELECT salt, digest FROM team_passwords WHERE game_id=? AND team_id=?',
+                                 (game_id, team_id)).fetchone()
+                valid = row and len(password) <= 128 and hmac.compare_digest(
+                    row[1], hashlib.pbkdf2_hmac('sha256', password.encode(), row[0], 600_000))
+        if not valid:
+            raise ValueError('Invalid team credentials.')
+        return revision
+
+    def team_password(self, actor, token_digest, data):
+        action = data.get('action')
+        game_id, team_id = data.get('game_id'), data.get('team_id')
+        if action == 'reset':
+            if actor['role'] != 'teacher': raise PermissionError('Instructor access required.')
+        elif action in ('set', 'skip'):
+            if actor != dict(role='student', game_id=game_id, team_id=team_id):
+                raise PermissionError('You can only set up your own team password.')
+        else:
+            raise ValueError('Unknown password action.')
+        if action == 'set':
+            password = data.get('password')
+            if not isinstance(password, str) or not 8 <= len(password) <= 128 or not password.strip():
+                raise ValueError('Use a team password of 8 to 128 characters.')
+            salt = secrets.token_bytes(16)
+            digest = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 600_000)
+        with self.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            # A reset in another request may have revoked this session.
+            if not db.execute("SELECT 1 FROM sessions WHERE token=? AND expires>strftime('%s','now')", (token_digest,)).fetchone():
+                raise PermissionError('Please sign in again.')
+            game = self.read(game_id, db)
+            team = next((t for t in game['teams'] if t['id'] == team_id), None)
+            if not team: raise ValueError('Unknown team.')
+            revision = team.get('password_revision', 0)
+            if data.get('password_revision') != revision:
+                raise ValueError('Team access changed. Refresh before trying again.')
+            if action != 'reset' and team.get('password_setup') == 'custom':
+                raise ValueError('Team password setup is already complete.')
+            if action == 'reset':
+                team['pin'] = secrets.token_hex(4).upper()
+                db.execute('DELETE FROM team_passwords WHERE game_id=? AND team_id=?', (game_id, team_id))
+            elif action == 'set':
+                db.execute('INSERT INTO team_passwords VALUES (?, ?, ?, ?)', (game_id, team_id, salt, digest))
+                team.pop('pin', None)
+            if action != 'skip':
+                target = dict(role='student', game_id=game_id, team_id=team_id)
+                sessions = [(key,) for key, body in db.execute('SELECT token, body FROM sessions')
+                            if key != token_digest and json.loads(body) == target]
+                db.executemany('DELETE FROM sessions WHERE token=?', sessions)
+            team['password_setup'] = {'set':'custom', 'skip':'skipped', 'reset':'pending'}[action]
+            team['password_revision'] = revision + 1
+            game['revision'] += 1
+            game['audit'].append(dict(at=now(), action='team_password_' + action, team_id=team_id,
+                                      actor=actor['role'], period=game['period']))
+            db.execute('UPDATE games SET body=? WHERE id=?', (json.dumps(game), game_id))
+            return self.view(game, actor)
+
     def list_games(self, deleted=False):
         with self.connection() as db:
             games = [json.loads(r[0]) for r in db.execute('SELECT body FROM games ORDER BY rowid DESC')]
@@ -322,7 +391,7 @@ class Store:
                                     total_premium=sum(r['gross'] for r in results),
                                     next_policies=sum(r['policies'] for r in results)*(1+g['env']['market_growth'])),
                         weight=g['round_weights'][g['period'] - 1],
-                        starting_teams=copy.deepcopy(g['teams']), decisions=copy.deepcopy(g['decisions']),
+                        starting_teams=[{k:v for k,v in t.items() if k not in ('pin','password_setup','password_revision')} for t in g['teams']], decisions=copy.deepcopy(g['decisions']),
                         results=results, published=False, settled_at=now(), rules=g['rules']))
                     g['phase'] = 'settled'
                 elif action == 'publish':
@@ -355,6 +424,8 @@ class Store:
         if g.get('deleted_at'):
             raise ValueError('This classroom has been deleted. Ask the instructor to restore it.')
         g = with_rounds(copy.deepcopy(g))
+        for h in g['history']:
+            for t in h.get('starting_teams', []): t.pop('pin', None)
         if actor.get('role') == 'teacher': return g
         if actor.get('game_id') != g['id']: raise PermissionError('You do not have access to this game.')
         tid = actor['team_id']
